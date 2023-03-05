@@ -57,7 +57,28 @@ def main():
     default=3,
     show_default=True,
 )
-def bpe(data, model, vocab_size, coverage, n_threads, pad_id, unk_id, bos_id, eos_id):
+@click.option(
+    "--eoc_id",
+    type=click.INT,
+    help="End of chapter token id.",
+    default=4,
+    show_default=True,
+)
+@click.option(
+    "--t2c_id",
+    type=click.INT,
+    help="Title next to content token id.",
+    default=5,
+    show_default=True,
+)
+@click.option(
+    "--dsp_id",
+    type=click.INT,
+    help="Dialog seperation token id.",
+    default=6,
+    show_default=True,
+)
+def bpe(data, model, vocab_size, coverage, n_threads, pad_id, unk_id, bos_id, eos_id,eoc_id, t2c_id, dsp_id):
     """Train BPE model."""
     yttmc.BPE.train(
         data=data,
@@ -69,6 +90,9 @@ def bpe(data, model, vocab_size, coverage, n_threads, pad_id, unk_id, bos_id, eo
         unk_id=unk_id,
         bos_id=bos_id,
         eos_id=eos_id,
+        eoc_id=eoc_id,
+        t2c_id=t2c_id,
+        dsp_id=dsp_id,
     )
 
 

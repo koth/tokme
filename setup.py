@@ -10,6 +10,7 @@ extensions = [
         [
             "youtokentome/cpp/yttm.pyx",
             "youtokentome/cpp/bpe.cpp",
+            "youtokentome/cpp/special_token_lexer.cpp",
             "youtokentome/cpp/utils.cpp",
             "youtokentome/cpp/utf8.cpp",
         ],

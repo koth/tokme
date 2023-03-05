@@ -26,10 +26,14 @@ struct SpecialTokens {
   int unk_id = -1;
   int bos_id = -1;
   int eos_id = -1;
+  int eoc_id = -1;
+  int t2c_id = -1;
+  int dsp_id = -1;
 
   SpecialTokens() = default;
 
-  SpecialTokens(int pad_id, int unk_id, int bos_id, int eos_id);
+  SpecialTokens(int pad_id, int unk_id, int bos_id, int eos_id, int eoc_id,int  t2c_id, int dsp_id);
+
 
   void dump(std::ofstream &fout);
 

@@ -1,42 +1,42 @@
-#include <utility>
-
 #include "bpe.h"
 
 #include <algorithm>
 #include <atomic>
 #include <cassert>
 #include <condition_variable>
+#include <cstring>
 #include <fstream>
 #include <functional>
 #include <iostream>
 #include <mutex>
 #include <queue>
+#include <random>
 #include <sstream>
 #include <string>
 #include <thread>
-#include <vector>
-#include <random>
 #include <unordered_set>
-#include <cstring>
+#include <utility>
+#include <vector>
 
+#include "special_token_lexer.h"
 #include "third_party/flat_hash_map.h"
 #include "utf8.h"
 #include "utils.h"
 
 namespace vkcom {
 using std::string;
-using std::vector;
 using std::unordered_set;
+using std::vector;
 
 struct VectorSegment {
   constexpr static uint64_t MOD = 2032191299;
   constexpr static uint64_t P = 726328703;
 
-  const char* begin;
-  const char* end;
+  const char *begin;
+  const char *end;
   uint64_t hash;
 
-  VectorSegment(const char* begin, const char* end): begin(begin), end(end) {
+  VectorSegment(const char *begin, const char *end) : begin(begin), end(end) {
     hash = 0;
     for (auto it = begin; it != end; it++) {
       hash = (hash * P + (unsigned char)(*it)) % MOD;
@@ -59,7 +59,7 @@ struct VectorSegment {
 }  // namespace vkcom
 
 namespace std {
-template<>
+template <>
 struct hash<vkcom::VectorSegment> {
   uint64_t operator()(const vkcom::VectorSegment &x) const { return x.hash; }
 };
@@ -77,7 +77,8 @@ Status fast_read_file_utf8(const string &file_name, string *file_content) {
   while (true) {
     uint64_t cur_size = file_content->size();
     file_content->resize(cur_size + buf_size);
-    int buf_len = fread((void *) (file_content->data() + cur_size), 1, buf_size, fin);
+    int buf_len =
+        fread((void *)(file_content->data() + cur_size), 1, buf_size, fin);
     if (buf_len < buf_size) {
       file_content->resize(file_content->size() - (buf_size - buf_len));
       fclose(fin);
@@ -101,7 +102,7 @@ bool is_space(uint32_t ch) {
 }
 
 uint64_t int2comb(uint32_t a, uint32_t b) {
-  return (static_cast<uint64_t >(a) << 32u) + b;
+  return (static_cast<uint64_t>(a) << 32u) + b;
 }
 
 struct MergeCandidate {
@@ -111,8 +112,8 @@ struct MergeCandidate {
 
   MergeCandidate() = default;
 
-  MergeCandidate(uint64_t count, uint32_t left_token, uint32_t right_token) : count(count), left_token(left_token),
-                                                                              right_token(right_token) {}
+  MergeCandidate(uint64_t count, uint32_t left_token, uint32_t right_token)
+      : count(count), left_token(left_token), right_token(right_token) {}
 
   bool operator<(const MergeCandidate &other) const {
     if (count != other.count) {
@@ -134,35 +135,32 @@ struct MergeCandidate {
 };
 
 struct UTF8Iterator {
-  UTF8Iterator(char* begin, char* end): begin(begin), end(end) {}
+  UTF8Iterator(char *begin, char *end) : begin(begin), end(end) {}
 
   UTF8Iterator operator++() {
-	if (!state) {
-	  parse();
-	}
-	begin += utf8_len;
-	state = false;
-	return *this;
+    if (!state) {
+      parse();
+    }
+    begin += utf8_len;
+    state = false;
+    return *this;
   }
 
   uint32_t operator*() {
-	if (!state) {
-	  parse();
-	}
-	return code_point;
+    if (!state) {
+      parse();
+    }
+    return code_point;
   }
 
-  char* get_ptr() {
-    return begin;
-  }
-  uint64_t get_utf8_len() {
-    return utf8_len;
-  }
+  char *get_ptr() { return begin; }
+  uint64_t get_utf8_len() { return utf8_len; }
 
   bool empty() {
     assert(begin <= end);
     return begin == end;
   }
+
  private:
   char *begin, *end;
   uint32_t code_point = 0;
@@ -178,15 +176,15 @@ struct UTF8Iterator {
   }
 };
 
-
 struct Position {
   uint64_t word_id, pos_id;
 
-  Position(uint64_t word_id, uint64_t pos_id) : word_id(word_id), pos_id(pos_id) {}
+  Position(uint64_t word_id, uint64_t pos_id)
+      : word_id(word_id), pos_id(pos_id) {}
 
   bool operator<(const Position &other) const {
     return word_id < other.word_id ||
-        (word_id == other.word_id && pos_id < other.pos_id);
+           (word_id == other.word_id && pos_id < other.pos_id);
   }
 };
 
@@ -204,7 +202,6 @@ bool rule_intersection(BPE_Rule rule, uint32_t new_left, uint32_t new_right) {
 }
 
 struct SmallObjectQueue {
-
   vector<vector<MergeCandidate>> queue;
   bool flag_started{false};
   uint64_t _size{0};
@@ -263,9 +260,7 @@ struct SmallObjectQueue {
     _size--;
   }
 
-  uint64_t size() const {
-    return _size;
-  }
+  uint64_t size() const { return _size; }
 };
 
 struct BigObjectQueue {
@@ -274,19 +269,17 @@ struct BigObjectQueue {
 
   BigObjectQueue(uint64_t big_event_bound) : big_event_bound(big_event_bound) {}
 
-  void push(const MergeCandidate &event) {
-    big_events.push_back(event);
-  }
+  void push(const MergeCandidate &event) { big_events.push_back(event); }
 
-  bool empty() const {
-    return big_events.empty();
-  }
+  bool empty() const { return big_events.empty(); }
 
-  bool top(std::function<uint64_t(uint64_t)> &check_cnt, MergeCandidate &ret, SmallObjectQueue *small_object_queue,
-           BPE_Rule last_rule) {
+  bool top(std::function<uint64_t(uint64_t)> &check_cnt, MergeCandidate &ret,
+           SmallObjectQueue *small_object_queue, BPE_Rule last_rule) {
     for (uint64_t i = 0; i < big_events.size();) {
-      if (!rule_intersection(last_rule, big_events[i].left_token, big_events[i].right_token)) {
-        uint64_t comb = int2comb(big_events[i].left_token, big_events[i].right_token);
+      if (!rule_intersection(last_rule, big_events[i].left_token,
+                             big_events[i].right_token)) {
+        uint64_t comb =
+            int2comb(big_events[i].left_token, big_events[i].right_token);
         assert(big_events[i].count >= check_cnt(comb));
         big_events[i].count = check_cnt(comb);
       }
@@ -300,7 +293,7 @@ struct BigObjectQueue {
       }
     }
 #ifdef DETERMINISTIC_QUEUE
-    sort(big_events.begin(), big_events.end()); /// TODO remove unoptimal code
+    sort(big_events.begin(), big_events.end());  /// TODO remove unoptimal code
 #else
     for (auto &big_event : big_events) {
       if (big_event.count > big_events.back().count) {
@@ -321,9 +314,7 @@ struct BigObjectQueue {
     big_events.pop_back();
   }
 
-  uint64_t size() const {
-    return big_events.size();
-  }
+  uint64_t size() const { return big_events.size(); }
 };
 
 struct PriorityQueue {
@@ -331,8 +322,9 @@ struct PriorityQueue {
   BigObjectQueue big_queue;
   uint64_t big_event_bound;
 
-  explicit PriorityQueue(uint64_t dataset_size) : big_queue(static_cast<uint64_t>(sqrt(dataset_size))),
-                                                  big_event_bound(static_cast<uint64_t>(sqrt(dataset_size))) {}
+  explicit PriorityQueue(uint64_t dataset_size)
+      : big_queue(static_cast<uint64_t>(sqrt(dataset_size))),
+        big_event_bound(static_cast<uint64_t>(sqrt(dataset_size))) {}
 
   void push(const MergeCandidate &event) {
     if (event.count == 0) {
@@ -345,11 +337,10 @@ struct PriorityQueue {
     }
   }
 
-  bool empty() {
-    return big_queue.empty() && small_queue.empty();
-  }
+  bool empty() { return big_queue.empty() && small_queue.empty(); }
 
-  MergeCandidate top(std::function<uint64_t(uint64_t)> &check_cnt, BPE_Rule last_rule) {
+  MergeCandidate top(std::function<uint64_t(uint64_t)> &check_cnt,
+                     BPE_Rule last_rule) {
     MergeCandidate res;
     bool has_top = big_queue.top(check_cnt, res, &small_queue, last_rule);
     if (has_top) {
@@ -366,9 +357,7 @@ struct PriorityQueue {
     }
   }
 
-  uint64_t size() const {
-    return big_queue.size() + small_queue.size();
-  }
+  uint64_t size() const { return big_queue.size() + small_queue.size(); }
 };
 
 flat_hash_map<uint32_t, uint32_t> compute_alphabet_helper(
@@ -384,9 +373,9 @@ flat_hash_map<uint32_t, uint32_t> compute_alphabet_helper(
   uint64_t cur = 0;
   uint64_t n_removed = 0;
   for (; cur < frequencies.size() &&
-      (data_len - n_removed - frequencies[cur].first) >
-          data_len * bpe_config.character_coverage;
-         cur++) {
+         (data_len - n_removed - frequencies[cur].first) >
+             data_len * bpe_config.character_coverage;
+       cur++) {
     n_removed += frequencies[cur].first;
   }
   std::cerr << "number of unique characters in the training data: "
@@ -423,27 +412,29 @@ void remove_rare_chars(vector<uint32_t> &data,
   data.erase(it_first_rare_char, data.end());
 }
 
-char* remove_rare_chars(char* begin, char* end, const flat_hash_set<uint32_t> &removed_chars) {
+char *remove_rare_chars(char *begin, char *end,
+                        const flat_hash_set<uint32_t> &removed_chars) {
   if (removed_chars.empty()) {
     return end;
   }
-  char* end_candidate = begin;
+  char *end_candidate = begin;
   bool invalid_input = false;
   UTF8Iterator utf8_iter(begin, end);
   for (; !utf8_iter.empty(); ++utf8_iter) {
     if (*utf8_iter != INVALID_UNICODE) {
       if (removed_chars.count(*utf8_iter) == 0) {
-        char* token_begin = utf8_iter.get_ptr();
+        char *token_begin = utf8_iter.get_ptr();
         uint64_t token_len = utf8_iter.get_utf8_len();
-		memcpy(end_candidate, token_begin, token_len);
-		end_candidate += token_len;
+        memcpy(end_candidate, token_begin, token_len);
+        end_candidate += token_len;
       }
     } else {
       invalid_input = true;
     }
   }
   if (invalid_input) {
-    std::cerr << "WARNING Input contains invalid unicode characters." << std::endl;
+    std::cerr << "WARNING Input contains invalid unicode characters."
+              << std::endl;
   }
   return end_candidate;
 }
@@ -453,22 +444,30 @@ struct WordCount {
   uint64_t cnt;
 };
 
-
 flat_hash_map<VectorSegment, WordCount> compute_word_count(
-  char* sbegin, char* send,
-  const flat_hash_map<uint32_t, uint32_t> &char2id) {
+    char *sbegin, char *send,
+    const flat_hash_map<uint32_t, uint32_t> &char2id) {
   flat_hash_map<VectorSegment, WordCount> hash2wordcnt;
   vector<uint32_t> word;
   UTF8Iterator utf8_iter(sbegin, send);
 
-  for (;!utf8_iter.empty();) {
-    for (; !utf8_iter.empty() && is_space(*utf8_iter); ++utf8_iter);
+  for (; !utf8_iter.empty();) {
+    for (; !utf8_iter.empty() && is_space(*utf8_iter); ++utf8_iter)
+      ;
     if (utf8_iter.empty()) {
       break;
     }
-    char* begin_of_word = utf8_iter.get_ptr();
-    for (; !utf8_iter.empty() && !is_space(*utf8_iter); ++utf8_iter);
-    char* end_of_word = utf8_iter.get_ptr();
+    char *begin_of_word = utf8_iter.get_ptr();
+    for (; !utf8_iter.empty() && !is_space(*utf8_iter) &&
+           utf8_iter.get_utf8_len() == 1;
+         ++utf8_iter)
+      ;
+    char *end_of_word = utf8_iter.get_ptr();
+    if (begin_of_word == end_of_word) {
+      ++utf8_iter;
+      end_of_word = utf8_iter.get_ptr();
+    }
+
     VectorSegment word_hash(begin_of_word, end_of_word);
     auto it = hash2wordcnt.find(word_hash);
     if (it == hash2wordcnt.end()) {
@@ -485,7 +484,6 @@ flat_hash_map<VectorSegment, WordCount> compute_word_count(
   }
   return hash2wordcnt;
 }
-
 
 struct NodeEncoder {
   uint32_t val;
@@ -553,9 +551,9 @@ void time_check(const string &message) {
   if (!message.empty()) {
     std::cerr << "## time " << message << " ... "
               << std::chrono::duration_cast<std::chrono::microseconds>(
-                  cur_moment - last_time_stamp)
-                  .count() *
-                  1.0 / 1e6
+                     cur_moment - last_time_stamp)
+                         .count() *
+                     1.0 / 1e6
               << std::endl;
   }
   last_time_stamp = cur_moment;
@@ -564,9 +562,9 @@ void time_check(const string &message) {
 double time_check_silent() {
   auto cur_moment = std::chrono::steady_clock::now();
   double ret = std::chrono::duration_cast<std::chrono::microseconds>(
-      cur_moment - last_time_stamp)
-      .count() *
-      1.0 / 1e6;
+                   cur_moment - last_time_stamp)
+                   .count() *
+               1.0 / 1e6;
   last_time_stamp = cur_moment;
   return ret;
 }
@@ -671,7 +669,7 @@ void worker_doing_merge(
   auto self_full_remove = [&](uint64_t word_id, uint64_t pos_id) {
     uint64_t comb = get_self_code(word_id, pos_id);
     uint32_t real_cnt = word_freq[word_id] *
-        pairsInSeg(lists_of_tokens[word_id][pos_id].seg_len);
+                        pairsInSeg(lists_of_tokens[word_id][pos_id].seg_len);
     pair2cnt[comb] -= real_cnt;
   };
 
@@ -699,7 +697,7 @@ void worker_doing_merge(
       std::unique_lock<std::mutex> ul(mt[thread_id]);
       cv[thread_id].wait(ul, [&] {
         return task_order[cur_token_rule % 2].z == cur_token_rule ||
-            cur_token_rule >= real_n_tokens;
+               cur_token_rule >= real_n_tokens;
       });
       assert(cur_token_rule <= real_n_tokens);
       if (cur_token_rule == real_n_tokens) {
@@ -932,7 +930,8 @@ void rename_tokens(flat_hash_map<uint32_t, uint32_t> &char2id,
   }
 }
 
-uint64_t compute_char_count(flat_hash_map<uint32_t, uint64_t>& char_cnt, char* begin, char* end) {
+uint64_t compute_char_count(flat_hash_map<uint32_t, uint64_t> &char_cnt,
+                            char *begin, char *end) {
   bool invalid_input = false;
   UTF8Iterator utf8_iter(begin, end);
   uint64_t char_count = 0;
@@ -953,8 +952,8 @@ uint64_t compute_char_count(flat_hash_map<uint32_t, uint64_t>& char_cnt, char* b
 }
 
 Status learn_bpe_from_string(string &text_utf8, int n_tokens,
-                             const string &output_file,
-                             BpeConfig bpe_config, BPEState *bpe_state) {
+                             const string &output_file, BpeConfig bpe_config,
+                             BPEState *bpe_state) {
   assert(bpe_config.n_threads >= 1 || bpe_config.n_threads == -1);
   uint64_t n_threads = bpe_config.n_threads;
   vector<uint64_t> split_pos;
@@ -962,7 +961,7 @@ Status learn_bpe_from_string(string &text_utf8, int n_tokens,
   for (uint64_t i = 1; i <= n_threads; i++) {
     uint64_t candidate = text_utf8.size() * i / n_threads;
     for (; candidate < text_utf8.size() && !is_space(text_utf8[candidate]);
-           candidate++) {
+         candidate++) {
     }
 
     split_pos.push_back(candidate);
@@ -1019,7 +1018,6 @@ Status learn_bpe_from_string(string &text_utf8, int n_tokens,
         [&](uint64_t thread_id) {
           // threads are working 1
 
-
           auto thread_awake_main = [&]() {
             {
               std::lock_guard<std::mutex> lk(mt[thread_id]);
@@ -1035,7 +1033,9 @@ Status learn_bpe_from_string(string &text_utf8, int n_tokens,
           };
 
           flat_hash_map<uint32_t, uint64_t> char_cnt;
-          uint64_t char_count = compute_char_count(char_cnt, &text_utf8[0] + split_pos[thread_id], &text_utf8[0] + split_pos[thread_id + 1]);
+          uint64_t char_count =
+              compute_char_count(char_cnt, &text_utf8[0] + split_pos[thread_id],
+                                 &text_utf8[0] + split_pos[thread_id + 1]);
           text_len[thread_id] = char_count;
           shared_char_cnt[thread_id] = char_cnt;
 
@@ -1043,12 +1043,14 @@ Status learn_bpe_from_string(string &text_utf8, int n_tokens,
           // main is working  1
           thread_wait_main();
           // threads are working 2
-          char* seg_begin = &text_utf8[0] + split_pos[thread_id];
-          char* seg_end = &text_utf8[0] + split_pos[thread_id + 1];
-          char* new_seg_end = remove_rare_chars(seg_begin, seg_end, removed_chars);
+          char *seg_begin = &text_utf8[0] + split_pos[thread_id];
+          char *seg_end = &text_utf8[0] + split_pos[thread_id + 1];
+          char *new_seg_end =
+              remove_rare_chars(seg_begin, seg_end, removed_chars);
           seg_end = new_seg_end;
 
-          hash2wordcnt[thread_id] = compute_word_count(seg_begin, seg_end, char2id);
+          hash2wordcnt[thread_id] =
+              compute_word_count(seg_begin, seg_end, char2id);
 
           thread_awake_main();
           // main is working 2
@@ -1146,9 +1148,12 @@ Status learn_bpe_from_string(string &text_utf8, int n_tokens,
 
   uint64_t used_ids =
       char2id.size() + bpe_config.special_tokens.n_special_tokens();
-  if (used_ids > (uint64_t) n_tokens) {
-    string error_message = "Incorrect arguments. Vocabulary size too small. Set vocab_size>=";
-    error_message += std::to_string(used_ids) + ".  Current value for vocab_size=" + std::to_string(n_tokens);
+  if (used_ids > (uint64_t)n_tokens) {
+    string error_message =
+        "Incorrect arguments. Vocabulary size too small. Set vocab_size>=";
+    error_message +=
+        std::to_string(used_ids) +
+        ".  Current value for vocab_size=" + std::to_string(n_tokens);
     error_flag = 1;
     main_awake_threads();
     for (auto &t : threads) {
@@ -1214,12 +1219,12 @@ Status learn_bpe_from_string(string &text_utf8, int n_tokens,
   int inter_fail = 0;
   int equal_fail = 0;
   vector<std::pair<int, double>> progress_debug;
-  while (used_ids < (uint64_t) n_tokens) {
+  while (used_ids < (uint64_t)n_tokens) {
     uint32_t x, y, z;
     assert(finished_cur <= used_ids && used_ids <= finished_cur + 2);
     bool progress = false;
 
-    if (used_ids < (uint64_t) n_tokens && used_ids - finished_cur < 2 &&
+    if (used_ids < (uint64_t)n_tokens && used_ids - finished_cur < 2 &&
         last_failed_try < finished_cur) {
       progress = true;
       for (uint64_t i = 0; i < n_threads; i++) {
@@ -1246,18 +1251,18 @@ Status learn_bpe_from_string(string &text_utf8, int n_tokens,
             }
           }
           BPE_Rule last_rule = (used_ids - finished_cur == 1)
-                               ? rules.back()
-                               : BPE_Rule({0, 0, 0});
+                                   ? rules.back()
+                                   : BPE_Rule({0, 0, 0});
 
           auto merge_event = merge_order.top(check_cnt, last_rule);
           if ((used_ids - finished_cur == 1) &&
               (merge_event.left_token == rules.back().y ||
-                  merge_event.right_token == rules.back().x ||
-                  (!rules.empty() && rules.back().x == rules.back().y))) {
+               merge_event.right_token == rules.back().x ||
+               (!rules.empty() && rules.back().x == rules.back().y))) {
             inter_fail += merge_event.left_token == rules.back().y ||
-                merge_event.right_token == rules.back().x;
+                          merge_event.right_token == rules.back().x;
             equal_fail += !rules.empty() && rules.back().x == rules.back().y &&
-                used_ids - finished_cur == 1;
+                          used_ids - finished_cur == 1;
 
             last_failed_try = finished_cur;
             x = y = z = 0;
@@ -1388,9 +1393,9 @@ Status learn_bpe_from_string(string &text_utf8, int n_tokens,
   return Status();
 }
 
-void build_linked_list(
-    const vector<WordCount> &word_cnt, vector<vector<NodeEncoder>> &list,
-    flat_hash_map<uint64_t, PositionsCnt> &pair2poscnt) {
+void build_linked_list(const vector<WordCount> &word_cnt,
+                       vector<vector<NodeEncoder>> &list,
+                       flat_hash_map<uint64_t, PositionsCnt> &pair2poscnt) {
   list.resize(word_cnt.size());
   for (uint64_t i = 0; i < word_cnt.size(); i++) {
     for (uint32_t ch : word_cnt[i].word) {
@@ -1447,32 +1452,45 @@ flat_hash_map<uint32_t, uint32_t> compute_alphabet(
 
 Status check_config(BpeConfig &bpe_config, int vocab_size) {
   if (bpe_config.character_coverage <= 0 || bpe_config.character_coverage > 1) {
-    return Status(1, "coverage value must be in the range (0, 1]. Current value of coverage = " +
-        std::to_string(bpe_config.character_coverage));
+    return Status(1,
+                  "coverage value must be in the range (0, 1]. Current value "
+                  "of coverage = " +
+                      std::to_string(bpe_config.character_coverage));
   }
   if (bpe_config.special_tokens.unk_id < 0 ||
       bpe_config.special_tokens.unk_id >= vocab_size) {
     return Status(1,
-                  "unk_id: must be in the range [0, vocab_size - 1]. Current value of vocab_size = "
-                      + std::to_string(vocab_size) + "; unk_id = " + std::to_string(bpe_config.special_tokens.unk_id));
+                  "unk_id: must be in the range [0, vocab_size - 1]. Current "
+                  "value of vocab_size = " +
+                      std::to_string(vocab_size) + "; unk_id = " +
+                      std::to_string(bpe_config.special_tokens.unk_id));
   }
 
   if (bpe_config.special_tokens.pad_id < -1 ||
       bpe_config.special_tokens.pad_id >= vocab_size) {
-    return Status(1, "pad_id must be in the range [-1, vocab_size - 1]. Current value of vocab_size = " +
-        std::to_string(vocab_size) + "; pad_id = " + std::to_string(bpe_config.special_tokens.pad_id));
+    return Status(1,
+                  "pad_id must be in the range [-1, vocab_size - 1]. Current "
+                  "value of vocab_size = " +
+                      std::to_string(vocab_size) + "; pad_id = " +
+                      std::to_string(bpe_config.special_tokens.pad_id));
   }
 
   if (bpe_config.special_tokens.bos_id < -1 ||
       bpe_config.special_tokens.bos_id >= vocab_size) {
-    return Status(1, "bos_id must be in the range [-1, vocab_size - 1]. Current value of vocab_size = " +
-        std::to_string(vocab_size) + "; bos_id = " + std::to_string(bpe_config.special_tokens.bos_id));
+    return Status(1,
+                  "bos_id must be in the range [-1, vocab_size - 1]. Current "
+                  "value of vocab_size = " +
+                      std::to_string(vocab_size) + "; bos_id = " +
+                      std::to_string(bpe_config.special_tokens.bos_id));
   }
 
   if (bpe_config.special_tokens.eos_id < -1 ||
       bpe_config.special_tokens.eos_id >= vocab_size) {
-    return Status(1, "eos_id must be in the range [-1, vocab_size - 1]. Current value of vocab_size = " +
-        std::to_string(vocab_size) + " eos_id = " + std::to_string(bpe_config.special_tokens.eos_id));
+    return Status(1,
+                  "eos_id must be in the range [-1, vocab_size - 1]. Current "
+                  "value of vocab_size = " +
+                      std::to_string(vocab_size) + " eos_id = " +
+                      std::to_string(bpe_config.special_tokens.eos_id));
   }
 
   flat_hash_set<int> ids;
@@ -1487,6 +1505,18 @@ Status check_config(BpeConfig &bpe_config, int vocab_size) {
   }
   if (bpe_config.special_tokens.eos_id != -1) {
     ids.insert(bpe_config.special_tokens.eos_id);
+    cnt_add++;
+  }
+  if (bpe_config.special_tokens.eoc_id != -1) {
+    ids.insert(bpe_config.special_tokens.eoc_id);
+    cnt_add++;
+  }
+  if (bpe_config.special_tokens.t2c_id != -1) {
+    ids.insert(bpe_config.special_tokens.t2c_id);
+    cnt_add++;
+  }
+  if (bpe_config.special_tokens.dsp_id != -1) {
+    ids.insert(bpe_config.special_tokens.dsp_id);
     cnt_add++;
   }
   ids.insert(bpe_config.special_tokens.unk_id);
@@ -1515,6 +1545,9 @@ void print_config(const string &input_path, const string &model_path,
   std::cerr << "  unk: " << bpe_config.special_tokens.unk_id << std::endl;
   std::cerr << "  bos: " << bpe_config.special_tokens.bos_id << std::endl;
   std::cerr << "  eos: " << bpe_config.special_tokens.eos_id << std::endl;
+  std::cerr << "  eoc: " << bpe_config.special_tokens.eoc_id << std::endl;
+  std::cerr << "  t2c: " << bpe_config.special_tokens.t2c_id << std::endl;
+  std::cerr << "  dsp: " << bpe_config.special_tokens.dsp_id << std::endl;
   std::cerr << std::endl;
 }
 
@@ -1531,31 +1564,30 @@ Status train_bpe(const string &input_path, const string &model_path,
   if (!status.ok()) {
     return status;
   }
-  std::cerr << "learning bpe..." << std::endl;
+
+  std::cerr << "[koth]learning bpe..." << std::endl;
   BPEState bpe_state;
-  status = learn_bpe_from_string(data, vocab_size, model_path, bpe_config, &bpe_state);
+  status = learn_bpe_from_string(data, vocab_size, model_path, bpe_config,
+                                 &bpe_state);
   if (!status.ok()) {
     return status;
   }
   return Status();
 }
 
-
-template<typename T>
+template <typename T>
 class BasePriorityQueue {
  public:
   virtual void push(T x) = 0;
-  virtual bool pop(T& x) = 0;
+  virtual bool pop(T &x) = 0;
   virtual ~BasePriorityQueue() {}
 };
 
-template<typename T>
+template <typename T>
 class STLQueue : public BasePriorityQueue<T> {
   std::priority_queue<T> q;
-  void push(T x) override {
-    q.push(x);
-  }
-  bool pop(T& x) override {
+  void push(T x) override { q.push(x); }
+  bool pop(T &x) override {
     if (q.empty()) {
       return false;
     }
@@ -1567,22 +1599,22 @@ class STLQueue : public BasePriorityQueue<T> {
 
 std::mt19937 rnd;
 
-template<typename T>
+template <typename T>
 class DropoutQueue : public BasePriorityQueue<T> {
   double skip_prob;
   std::uniform_real_distribution<> dist;
   std::priority_queue<T> q;
   vector<T> skipped_elements;
+
  public:
-  explicit DropoutQueue(double _skip_prob):skip_prob(_skip_prob), dist(std::uniform_real_distribution<>(0, 1))  {}
-  void push(T x) override {
-    q.push(x);
-  }
-  bool pop(T& x) override {
+  explicit DropoutQueue(double _skip_prob)
+      : skip_prob(_skip_prob), dist(std::uniform_real_distribution<>(0, 1)) {}
+  void push(T x) override { q.push(x); }
+  bool pop(T &x) override {
     assert(skipped_elements.empty());
     while (true) {
       if (q.empty()) {
-        for (auto y: skipped_elements)  {
+        for (auto y : skipped_elements) {
           q.push(y);
         }
         skipped_elements.clear();
@@ -1592,9 +1624,8 @@ class DropoutQueue : public BasePriorityQueue<T> {
       q.pop();
       if (dist(rnd) < skip_prob) {
         skipped_elements.push_back(temp);
-      }
-      else {
-        for (auto y: skipped_elements)  {
+      } else {
+        for (auto y : skipped_elements) {
           q.push(y);
         }
         skipped_elements.clear();
@@ -1627,7 +1658,7 @@ DecodeResult BaseEncoder::encode_sentence(const std::string &sentence_utf8,
 
     bool operator<(const MergeEvent2 &other) const {
       return priority > other.priority ||
-          (priority == other.priority && pos > other.pos);
+             (priority == other.priority && pos > other.pos);
     }
   };
 
@@ -1641,127 +1672,157 @@ DecodeResult BaseEncoder::encode_sentence(const std::string &sentence_utf8,
       output_pieces.push_back(BOS_TOKEN);
     }
   }
+  ParseResult p_result;
+  ParseSentence(sentence_utf8, p_result);
+  for (auto &sub_sentence : p_result.tokens) {
 
-  vector<NodeDecoder> list;
-  flat_hash_map<uint32_t, string> unrecognized_tokens;
-
-  auto text = decode_utf8(sentence_utf8.data(),
-                          sentence_utf8.data() + sentence_utf8.size());
-
-  assert(bpe_state.char2id.count(SPACE_TOKEN));
-
-  for (; !text.empty() && is_space(text.back()); text.pop_back()) {
-  }
-
-  const int new_tokens_start = static_cast<int>(
-      1e9);  // just some number that bigger than any subword id
-  for (auto it_text = text.begin(); it_text != text.end();) {
-    list.clear();
-    unrecognized_tokens.clear();
-
-    auto begin_of_word = std::find_if_not(it_text, text.end(), is_space);
-    auto end_of_word = std::find_if(begin_of_word, text.end(), is_space);
-    it_text = end_of_word;
-
-    uint32_t new_token_cur = new_tokens_start;
-    list.emplace_back(bpe_state.char2id.at(SPACE_TOKEN), 0);
-
-    for (auto it_char_in_word = begin_of_word; it_char_in_word < end_of_word;) {
-      if (bpe_state.char2id.count(*it_char_in_word) == 0) {
-        auto it_unrecognized_word = std::find_if(
-            it_char_in_word, end_of_word,
-            [&](uint32_t ch) { return bpe_state.char2id.count(ch); });
-
-        unrecognized_tokens[new_token_cur] =
-            encode_utf8({it_char_in_word, it_unrecognized_word});
-        it_char_in_word = it_unrecognized_word;
-
-        list.emplace_back(new_token_cur, list.size());
-        new_token_cur++;
+    std::cerr<<"output sub:"<<sub_sentence<<std::endl;
+    
+    if(sub_sentence==EOC_TOKEN){
+      if (output_type == ID) {
+        output_ids.push_back(bpe_state.special_tokens.eoc_id);
       } else {
-        list.emplace_back(bpe_state.char2id.at(*it_char_in_word), list.size());
-        ++it_char_in_word;
+        output_pieces.push_back(EOC_TOKEN);
       }
-    }
-    list.back().next = -1;
-
-
-    auto pair_code = [&](uint64_t first_pos) {
-      auto second_pos = list[first_pos].next;
-      return int2comb(list[first_pos].token_id, list[second_pos].token_id);
-    };
-
-    std::unique_ptr<BasePriorityQueue<MergeEvent2>> queue(nullptr);
-    if (encoding_config.dropout_prob == 0) {
-      queue.reset(new STLQueue<MergeEvent2>());
-    }
-    else {
-      queue.reset(new DropoutQueue<MergeEvent2>(encoding_config.dropout_prob));
-    }
-
-    auto push_in_queue_if_rule_exist = [&](uint64_t pos) {
-      auto it = rule2id.find(pair_code(pos));
-      if (it != rule2id.end()) {
-        queue->push({it->second, static_cast<int>(pos)});
+      continue;
+    }else if(sub_sentence==T2C_TOKEN){
+      if (output_type == ID) {
+        output_ids.push_back(bpe_state.special_tokens.t2c_id);
+      } else {
+        output_pieces.push_back(T2C_TOKEN);
       }
-    };
-
-    for (uint64_t j = 0; j + 1 < list.size(); j++) {
-      push_in_queue_if_rule_exist(j);
+      continue;
+    }else if(sub_sentence==DSP_TOKEN){
+      if (output_type == ID) {
+        output_ids.push_back(bpe_state.special_tokens.dsp_id);
+      } else {
+        output_pieces.push_back(DSP_TOKEN);
+      }
+      continue;
     }
 
-    while (true) {
-      MergeEvent2 event;
-      if (!queue->pop(event)) {
-        break;
-      }
-      int rule_id = event.priority;
-      int pos_1 = event.pos;
-      int pos_2 = list[pos_1].next;
-      assert(pos_1 != pos_2);
-      if (list[pos_1].token_id != bpe_state.rules[rule_id].x || pos_2 == -1 ||
-          list[pos_2].token_id != bpe_state.rules[rule_id].y) {
-        continue;
-      }
+    vector<NodeDecoder> list;
+    flat_hash_map<uint32_t, string> unrecognized_tokens;
 
-      int pos_0 = list[pos_1].prev;
-      int pos_3 = list[pos_2].next;
+    auto text = decode_utf8(sub_sentence.data(),
+                            sub_sentence.data() + sub_sentence.size());
 
-      list[pos_2] = {0, -1, -1};
-      list[pos_1] = {bpe_state.rules[rule_id].z, pos_0, pos_3};
-      if (pos_3 != -1) {
-        list[pos_3].prev = pos_1;
-      }
+    assert(bpe_state.char2id.count(SPACE_TOKEN));
 
-      if (pos_0 != -1) {
-        push_in_queue_if_rule_exist(pos_0);
-      }
-      if (pos_3 != -1) {
-        push_in_queue_if_rule_exist(pos_1);
-      }
+    for (; !text.empty() && is_space(text.back()); text.pop_back()) {
     }
 
-    auto it_alive_token = std::find_if(
-        list.begin(), list.end(),
-        [](const NodeDecoder &node) { return node.token_id != 0; });
+    const int new_tokens_start = static_cast<int>(
+        1e9);  // just some number that bigger than any subword id
+    for (auto it_text = text.begin(); it_text != text.end();) {
+      list.clear();
+      unrecognized_tokens.clear();
 
-    assert(it_alive_token != list.end());
-    int alive_token = std::distance(list.begin(), it_alive_token);
-    for (; alive_token != -1; alive_token = list[alive_token].next) {
-      int token_id = list[alive_token].token_id;
-      if (token_id >= new_tokens_start) {
-        if (output_type == ID) {
-          output_ids.push_back(bpe_state.special_tokens.unk_id);
+      auto begin_of_word = std::find_if_not(it_text, text.end(), is_space);
+      auto end_of_word = std::find_if(begin_of_word, text.end(), is_space);
+      it_text = end_of_word;
+
+      uint32_t new_token_cur = new_tokens_start;
+      list.emplace_back(bpe_state.char2id.at(SPACE_TOKEN), 0);
+
+      for (auto it_char_in_word = begin_of_word;
+           it_char_in_word < end_of_word;) {
+        if (bpe_state.char2id.count(*it_char_in_word) == 0) {
+          auto it_unrecognized_word = std::find_if(
+              it_char_in_word, end_of_word,
+              [&](uint32_t ch) { return bpe_state.char2id.count(ch); });
+
+          unrecognized_tokens[new_token_cur] =
+              encode_utf8({it_char_in_word, it_unrecognized_word});
+          it_char_in_word = it_unrecognized_word;
+
+          list.emplace_back(new_token_cur, list.size());
+          new_token_cur++;
         } else {
-          assert(unrecognized_tokens.count(token_id));
-          output_pieces.push_back(unrecognized_tokens[token_id]);
+          list.emplace_back(bpe_state.char2id.at(*it_char_in_word),
+                            list.size());
+          ++it_char_in_word;
         }
+      }
+      list.back().next = -1;
+
+      auto pair_code = [&](uint64_t first_pos) {
+        auto second_pos = list[first_pos].next;
+        return int2comb(list[first_pos].token_id, list[second_pos].token_id);
+      };
+
+      std::unique_ptr<BasePriorityQueue<MergeEvent2>> queue(nullptr);
+      if (encoding_config.dropout_prob == 0) {
+        queue.reset(new STLQueue<MergeEvent2>());
       } else {
-        if (output_type == ID) {
-          output_ids.push_back(token_id);
+        queue.reset(
+            new DropoutQueue<MergeEvent2>(encoding_config.dropout_prob));
+      }
+
+      auto push_in_queue_if_rule_exist = [&](uint64_t pos) {
+        auto it = rule2id.find(pair_code(pos));
+        if (it != rule2id.end()) {
+          queue->push({it->second, static_cast<int>(pos)});
+        }
+      };
+
+      for (uint64_t j = 0; j + 1 < list.size(); j++) {
+        push_in_queue_if_rule_exist(j);
+      }
+
+      while (true) {
+        MergeEvent2 event;
+        if (!queue->pop(event)) {
+          break;
+        }
+        int rule_id = event.priority;
+        int pos_1 = event.pos;
+        int pos_2 = list[pos_1].next;
+        assert(pos_1 != pos_2);
+        if (list[pos_1].token_id != bpe_state.rules[rule_id].x || pos_2 == -1 ||
+            list[pos_2].token_id != bpe_state.rules[rule_id].y) {
+          continue;
+        }
+
+        int pos_0 = list[pos_1].prev;
+        int pos_3 = list[pos_2].next;
+
+        list[pos_2] = {0, -1, -1};
+        list[pos_1] = {bpe_state.rules[rule_id].z, pos_0, pos_3};
+        if (pos_3 != -1) {
+          list[pos_3].prev = pos_1;
+        }
+
+        if (pos_0 != -1) {
+          push_in_queue_if_rule_exist(pos_0);
+        }
+        if (pos_3 != -1) {
+          push_in_queue_if_rule_exist(pos_1);
+        }
+      }
+
+      auto it_alive_token = std::find_if(
+          list.begin(), list.end(),
+          [](const NodeDecoder &node) { return node.token_id != 0; });
+
+      assert(it_alive_token != list.end());
+      int alive_token = std::distance(list.begin(), it_alive_token);
+      for (; alive_token != -1; alive_token = list[alive_token].next) {
+        int token_id = list[alive_token].token_id;
+        if (token_id >= new_tokens_start) {
+          if (output_type == ID) {
+            output_ids.push_back(bpe_state.special_tokens.unk_id);
+          } else {
+            assert(unrecognized_tokens.count(token_id));
+            output_pieces.push_back(unrecognized_tokens[token_id]);
+          }
         } else {
-          assert(recipe.count(token_id));
-          output_pieces.push_back(token2word(recipe.at(token_id), id2char));
+          if (output_type == ID) {
+            output_ids.push_back(token_id);
+          } else {
+            assert(recipe.count(token_id));
+            output_pieces.push_back(token2word(recipe.at(token_id), id2char));
+          }
         }
       }
     }
@@ -1793,7 +1854,8 @@ BaseEncoder::BaseEncoder(BPEState _bpe_state, int _n_threads)
   }
 }
 
-BaseEncoder::BaseEncoder(const string &model_path, int _n_threads, Status *ret_status)
+BaseEncoder::BaseEncoder(const string &model_path, int _n_threads,
+                         Status *ret_status)
     : n_threads(_n_threads) {
   Status status = bpe_state.load(model_path);
   if (!status.ok()) {
@@ -1808,7 +1870,7 @@ BaseEncoder::BaseEncoder(const string &model_path, int _n_threads, Status *ret_s
   *ret_status = Status();
 }
 
-template<typename T>
+template <typename T>
 vector<T> concat_vectors(const vector<T> &a, const vector<T> &b) {
   vector<T> c;
   c.reserve(a.size() + b.size());
@@ -1822,7 +1884,7 @@ void BaseEncoder::fill_from_state() {
     id2char[x.second] = x.first;
   }
 
-  for (int i = 0; i < (int) bpe_state.rules.size(); i++) {
+  for (int i = 0; i < (int)bpe_state.rules.size(); i++) {
     rule2id[int2comb(bpe_state.rules[i].x, bpe_state.rules[i].y)] = i;
   }
 
@@ -1844,14 +1906,13 @@ void BaseEncoder::fill_from_state() {
 
 int BaseEncoder::vocab_size() const {
   return bpe_state.rules.size() + bpe_state.char2id.size() +
-      bpe_state.special_tokens.n_special_tokens();
+         bpe_state.special_tokens.n_special_tokens();
 }
 
 Status BaseEncoder::encode_parallel(
     const std::vector<std::string> &sentences,
     const EncodingConfig &encoding_config, OutputType output_type,
-    std::vector<DecodeResult> *decoder_results
-) const {
+    std::vector<DecodeResult> *decoder_results) const {
   if (encoding_config.bos && bpe_state.special_tokens.bos_id == -1) {
     return Status(1, "Can't add <BOS> token. Model was trained without it.");
   }
@@ -1864,7 +1925,8 @@ Status BaseEncoder::encode_parallel(
       n_threads == 1) {  // Not too many sentences. It's better to solve it
     // without threads.
     for (uint64_t i = 0; i < sentences.size(); i++) {
-      decoder_results->at(i) = encode_sentence(sentences[i], encoding_config, output_type);
+      decoder_results->at(i) =
+          encode_sentence(sentences[i], encoding_config, output_type);
     }
     return Status();
   }
@@ -1876,7 +1938,8 @@ Status BaseEncoder::encode_parallel(
               (sentences.size() + n_threads - 1) / n_threads;
           uint64_t first_task = tasks_for_thread * this_thread;
           uint64_t last_task =
-              std::min(tasks_for_thread * (this_thread + 1), static_cast<uint64_t>(sentences.size()));
+              std::min(tasks_for_thread * (this_thread + 1),
+                       static_cast<uint64_t>(sentences.size()));
           for (uint64_t j = first_task; j < last_task; j++) {
             decoder_results->at(j) =
                 encode_sentence(sentences[j], encoding_config, output_type);
@@ -1890,13 +1953,14 @@ Status BaseEncoder::encode_parallel(
   return Status();
 }
 
-Status BaseEncoder::encode_as_ids(const vector<string> &sentences, vector<vector<int>> *ids,
-                                  bool bos, bool eos,
+Status BaseEncoder::encode_as_ids(const vector<string> &sentences,
+                                  vector<vector<int>> *ids, bool bos, bool eos,
                                   bool reverse, double dropout_prob) const {
   EncodingConfig encoding_config = {bos, eos, reverse, dropout_prob};
 
   std::vector<DecodeResult> decode_results;
-  Status status = encode_parallel(sentences, encoding_config, ID, &decode_results);
+  Status status =
+      encode_parallel(sentences, encoding_config, ID, &decode_results);
   if (!status.ok()) {
     return status;
   }
@@ -1907,14 +1971,15 @@ Status BaseEncoder::encode_as_ids(const vector<string> &sentences, vector<vector
   return Status();
 }
 
-Status BaseEncoder::encode_as_subwords(
-    const vector<string> &sentences,
-    vector<vector<string>> *subwords,
-    bool bos, bool eos, bool reverse, double dropout_prob) const {
+Status BaseEncoder::encode_as_subwords(const vector<string> &sentences,
+                                       vector<vector<string>> *subwords,
+                                       bool bos, bool eos, bool reverse,
+                                       double dropout_prob) const {
   time_check("");
   EncodingConfig encoding_config = {bos, eos, reverse, dropout_prob};
   std::vector<DecodeResult> decode_results;
-  Status status = encode_parallel(sentences, encoding_config, SUBWORD, &decode_results);
+  Status status =
+      encode_parallel(sentences, encoding_config, SUBWORD, &decode_results);
   if (!status.ok()) {
     return status;
   }
@@ -1925,11 +1990,14 @@ Status BaseEncoder::encode_as_subwords(
   return Status();
 }
 
-Status BaseEncoder::id_to_subword(int id, string *subword, bool replace_space) const {
+Status BaseEncoder::id_to_subword(int id, string *subword,
+                                  bool replace_space) const {
   if (id < 0 || vocab_size() <= id) {
-    return Status(1, "id must be in the range [0, vocab_size - 1]. Current value: vocab_size = " +
-        std::to_string(vocab_size()) +
-        "; id=" + std::to_string(id) + ";");
+    return Status(1,
+                  "id must be in the range [0, vocab_size - 1]. Current value: "
+                  "vocab_size = " +
+                      std::to_string(vocab_size()) +
+                      "; id=" + std::to_string(id) + ";");
   }
   if (bpe_state.special_tokens.unk_id == id) {
     *subword = UNK_TOKEN;
@@ -1948,11 +2016,27 @@ Status BaseEncoder::id_to_subword(int id, string *subword, bool replace_space) c
     return Status();
   }
 
+  if (bpe_state.special_tokens.eoc_id == id) {
+    *subword = EOC_TOKEN;
+    return Status();
+  }
+  if (bpe_state.special_tokens.t2c_id == id) {
+    *subword = T2C_TOKEN;
+    return Status();
+  }
+  if (bpe_state.special_tokens.dsp_id == id) {
+    *subword = DSP_TOKEN;
+    return Status();
+  }
+  // printf("id_to_subword: id=%d, recipe count:%lu,eos id=%d \n",
+  // id,recipe.count(id),bpe_state.special_tokens.eos_id);
+
   assert(recipe.count(id));
   if (replace_space) {
     auto symbols = recipe.at(id);
     if (id2char.at(symbols[0]) == SPACE_TOKEN) {
-      *subword = " " + token2word({symbols.begin() + 1, symbols.end()}, id2char);
+      *subword =
+          " " + token2word({symbols.begin() + 1, symbols.end()}, id2char);
       return Status();
     }
   }
@@ -1972,6 +2056,15 @@ int BaseEncoder::subword_to_id(const string &token) const {
   }
   if (EOS_TOKEN == token) {
     return bpe_state.special_tokens.eos_id;
+  }
+  if (EOC_TOKEN == token) {
+    return bpe_state.special_tokens.eoc_id;
+  }
+  if (T2C_TOKEN == token) {
+    return bpe_state.special_tokens.t2c_id;
+  }
+  if (DSP_TOKEN == token) {
+    return bpe_state.special_tokens.dsp_id;
   }
   if (reversed_recipe.count(token)) {
     return reversed_recipe.at(token);
@@ -1994,7 +2087,8 @@ Status BaseEncoder::decode(const vector<vector<int>> &ids,
   return Status();
 }
 
-Status BaseEncoder::decode(const vector<int> &ids, string *sentence, const unordered_set<int> *ignore_ids) const {
+Status BaseEncoder::decode(const vector<int> &ids, string *sentence,
+                           const unordered_set<int> *ignore_ids) const {
   bool first_iter = true;
   for (auto id : ids) {
     string subword;
@@ -2094,7 +2188,8 @@ void BaseEncoder::vocab_cli(bool verbose) const {
 }
 
 Status BaseEncoder::encode_cli(const string &output_type_str, bool stream,
-                               bool bos, bool eos, bool reverse, double dropout_prob) const {
+                               bool bos, bool eos, bool reverse,
+                               double dropout_prob) const {
   std::ios_base::sync_with_stdio(false);
   OutputType output_type;
   if (output_type_str == "id") {
@@ -2108,7 +2203,8 @@ Status BaseEncoder::encode_cli(const string &output_type_str, bool stream,
       string sentence;
       while (getline(std::cin, sentence)) {
         vector<vector<string>> subwords;
-        Status status = encode_as_subwords({sentence}, &subwords, bos, eos, reverse, dropout_prob);
+        Status status = encode_as_subwords({sentence}, &subwords, bos, eos,
+                                           reverse, dropout_prob);
         if (!status.ok()) {
           return status;
         }
@@ -2119,7 +2215,8 @@ Status BaseEncoder::encode_cli(const string &output_type_str, bool stream,
       string sentence;
       while (getline(std::cin, sentence)) {
         vector<vector<int>> ids;
-        Status status = encode_as_ids({sentence}, &ids, bos, eos, reverse, dropout_prob);
+        Status status =
+            encode_as_ids({sentence}, &ids, bos, eos, reverse, dropout_prob);
         if (!status.ok()) {
           return status;
         }
@@ -2138,7 +2235,8 @@ Status BaseEncoder::encode_cli(const string &output_type_str, bool stream,
       auto sentences = read_lines_from_stdin(batch_limit, &processed);
       if (output_type == SUBWORD) {
         vector<vector<string>> subwords;
-        Status status = encode_as_subwords(sentences, &subwords, bos, eos, reverse, dropout_prob);
+        Status status = encode_as_subwords(sentences, &subwords, bos, eos,
+                                           reverse, dropout_prob);
         if (!status.ok()) {
           return status;
         }
@@ -2146,7 +2244,8 @@ Status BaseEncoder::encode_cli(const string &output_type_str, bool stream,
       } else {
         assert(output_type == ID);
         vector<vector<int>> ids;
-        Status status = encode_as_ids(sentences, &ids, bos, eos, reverse, dropout_prob);
+        Status status =
+            encode_as_ids(sentences, &ids, bos, eos, reverse, dropout_prob);
         if (!status.ok()) {
           return status;
         }
@@ -2168,7 +2267,8 @@ Status BaseEncoder::encode_cli(const string &output_type_str, bool stream,
   return Status();
 }
 
-Status BaseEncoder::decode_cli(const std::unordered_set<int> *ignore_ids) const {
+Status BaseEncoder::decode_cli(
+    const std::unordered_set<int> *ignore_ids) const {
   std::ios_base::sync_with_stdio(false);
   string sentence;
   while (getline(std::cin, sentence)) {

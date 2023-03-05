@@ -13,6 +13,9 @@ const std::string UNK_TOKEN = "<UNK>";
 const std::string PAD_TOKEN = "<PAD>";
 const std::string BOS_TOKEN = "<BOS>";
 const std::string EOS_TOKEN = "<EOS>";
+const std::string T2C_TOKEN = "<t2c>";
+const std::string EOC_TOKEN = "<eoc>";
+const std::string DSP_TOKEN = "<dsp>";
 
 enum OutputType { ID, SUBWORD };
 

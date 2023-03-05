@@ -28,6 +28,9 @@ class BPE:
         unk_id: int = 1,
         bos_id: int = 2,
         eos_id: int = 3,
+        eoc_id: int = 4,
+        t2c_id: int = 5,
+        dsp_id: int = 6,
     ) -> "BPE":
         _youtokentome_cython.BPE.train(
             data=data,
@@ -39,6 +42,9 @@ class BPE:
             unk_id=unk_id,
             bos_id=bos_id,
             eos_id=eos_id,
+            eoc_id=eoc_id,
+            t2c_id=t2c_id,
+            dsp_id=dsp_id,
         )
 
         return BPE(model=model, n_threads=n_threads)

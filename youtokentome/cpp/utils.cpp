@@ -11,11 +11,12 @@ using std::vector;
 
 void SpecialTokens::dump(std::ofstream &fout) {
   fout << unk_id << " " << pad_id << " " << bos_id << " " << eos_id
-       << std::endl;
+      <<" " << eoc_id << " " << t2c_id << " " << dsp_id
+      << std::endl;
 }
 
 void SpecialTokens::load(std::ifstream &fin) {
-  fin >> unk_id >> pad_id >> bos_id >> eos_id;
+  fin >> unk_id >> pad_id >> bos_id >> eos_id >> eoc_id >> t2c_id >> dsp_id;
 }
 
 uint32_t SpecialTokens::max_id() const {
@@ -24,11 +25,15 @@ uint32_t SpecialTokens::max_id() const {
   ret = std::max(ret, pad_id);
   ret = std::max(ret, bos_id);
   ret = std::max(ret, eos_id);
+  ret = std::max(ret, eoc_id);
+  ret = std::max(ret, t2c_id);
+  ret = std::max(ret, dsp_id);
   return ret;
 }
 
 bool SpecialTokens::taken_id(int id) const {
-  return id == unk_id || id == pad_id || id == bos_id || id == eos_id;
+  return id == unk_id || id == pad_id || id == bos_id || id == eos_id
+      || id == eoc_id || id == t2c_id || id == dsp_id;
 }
 
 uint64_t SpecialTokens::n_special_tokens() const {
@@ -37,11 +42,15 @@ uint64_t SpecialTokens::n_special_tokens() const {
   cnt += (pad_id != -1);
   cnt += (bos_id != -1);
   cnt += (eos_id != -1);
+  cnt += (eoc_id != -1);
+  cnt += (t2c_id != -1);
+  cnt += (dsp_id != -1);
   return cnt;
 }
 
-SpecialTokens::SpecialTokens(int pad_id, int unk_id, int bos_id, int eos_id)
-    : pad_id(pad_id), unk_id(unk_id), bos_id(bos_id), eos_id(eos_id) {}
+SpecialTokens::SpecialTokens(int pad_id, int unk_id, int bos_id, int eos_id,int eoc_id, int t2c_id, int dsp_id)
+    : pad_id(pad_id), unk_id(unk_id), bos_id(bos_id), eos_id(eos_id), eoc_id(eoc_id), t2c_id(t2c_id), dsp_id(dsp_id)
+{}
 
 bool BPE_Rule::operator==(const BPE_Rule &other) const {
   return x == other.x && y == other.y && z == other.z;
