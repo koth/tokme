@@ -1675,9 +1675,6 @@ DecodeResult BaseEncoder::encode_sentence(const std::string &sentence_utf8,
   ParseResult p_result;
   ParseSentence(sentence_utf8, p_result);
   for (auto &sub_sentence : p_result.tokens) {
-
-    std::cerr<<"output sub:"<<sub_sentence<<std::endl;
-    
     if(sub_sentence==EOC_TOKEN){
       if (output_type == ID) {
         output_ids.push_back(bpe_state.special_tokens.eoc_id);
@@ -1697,6 +1694,13 @@ DecodeResult BaseEncoder::encode_sentence(const std::string &sentence_utf8,
         output_ids.push_back(bpe_state.special_tokens.dsp_id);
       } else {
         output_pieces.push_back(DSP_TOKEN);
+      }
+      continue;
+    }else if(sub_sentence==EOS_TOKEN){
+      if (output_type == ID) {
+        output_ids.push_back(bpe_state.special_tokens.eos_id);
+      } else {
+        output_pieces.push_back(EOS_TOKEN);
       }
       continue;
     }

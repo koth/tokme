@@ -17,13 +17,17 @@
 eoc [\<][eE][oO][cC][\>]
 t2c [\<][tT][2][cC][\>]
 dsp [\<][dD][sS][pP][\>]
+eos1 [\s]*[\n]+
+eos2 [\<][eE][oO][sS][\>]
 
 /*** Rules for parsing***/
 %%
-{eoc} { yyextra->appendToken("<eoc>");}
-{t2c} {yyextra->appendToken("<t2c>");}
-{dsp} {yyextra->appendToken("<dsp>");}
-.     {yyextra->appendChar(yytext[0]);}
+{eoc}      {yyextra->appendToken("<eoc>");}
+{t2c}      {yyextra->appendToken("<t2c>");}
+{dsp}      {yyextra->appendToken("<dsp>");}
+{eos1}     {yyextra->appendToken("<EOS>");}
+{eos2}     {yyextra->appendToken("<EOS>");}
+.          {yyextra->appendChar(yytext[0]);}
 %%
 
 int ParseSentence(const std::string& sentence, ParseResult& result){
