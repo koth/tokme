@@ -12,5 +12,6 @@ cc_library(
     ],
     hdrs=[
         "youtokentome/cpp/bpe.h",
-    ]
+    ],
+    visibility = ["//visibility:public"],
 )
